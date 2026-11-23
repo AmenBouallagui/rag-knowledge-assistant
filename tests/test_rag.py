@@ -134,6 +134,32 @@ class RagTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 Index.load(root / "bad.json")
 
+    def test_default_local_ingest_and_query(self):
+        from unittest.mock import Mock
+
+        encoder = Mock()
+        encoder.encode.side_effect = [
+            Mock(tolist=lambda: [[0, 2], [3, 0]]),
+            Mock(tolist=lambda: [[4, 0]]),
+        ]
+        constructor = Mock(return_value=encoder)
+        module = SimpleNamespace(SentenceTransformer=constructor)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", clear=True), patch.dict(
+            "sys.modules", {"sentence_transformers": module, "openai": None}
+        ):
+            root = Path(tmp)
+            write_pdf(root / "handbook.pdf")
+            path = root / "index.json"
+            main(["ingest", tmp, "--index", str(path)])
+            index = Index.load(path)
+            self.assertEqual(index.provider, "local")
+            client = FakeClient()
+            result = answer_question(client, index, "annual leave?", "test", top_k=1)
+            self.assertIn("handbook.pdf, page 2", result)
+            self.assertEqual([name for name, _ in client.calls], ["responses"])
+            self.assertEqual([call.args for call in constructor.call_args_list],
+                             [("sentence-transformers/all-MiniLM-L6-v2",)] * 2)
+
     def test_cli_ingest_and_ask(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -143,7 +169,10 @@ class RagTests(unittest.TestCase):
             module = SimpleNamespace(OpenAI=lambda **kwargs: client)
             with patch.dict("os.environ", {"OPENAI_API_KEY": "test-only"}), \
                  patch.dict("sys.modules", {"openai": module}), patch("builtins.print") as output:
-                main(["ingest", str(root), "--index", str(index)])
+                main(["ingest", str(root), "--embedding-provider", "openai", "--index", str(index)])
+                payload = json.loads(index.read_text())
+                self.assertEqual(payload.pop("provider"), "openai")
+                index.write_text(json.dumps(payload))  # Original version-1 format.
                 main(["ask", "annual leave?", "--index", str(index), "--top-k", "1"])
                 self.assertIn("handbook.pdf, page 2", output.call_args.args[0])
                 self.assertTrue(index.exists())

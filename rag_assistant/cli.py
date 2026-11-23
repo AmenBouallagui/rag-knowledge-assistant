@@ -17,7 +17,8 @@ def main(argv=None):
     ingest.add_argument("--index", type=Path, default=Path(".rag/index.json"))
     ingest.add_argument("--chunk-size", type=int, default=1200)
     ingest.add_argument("--overlap", type=int, default=200)
-    ingest.add_argument("--embedding-model", default=os.getenv("RAG_EMBEDDING_MODEL", "text-embedding-3-small"))
+    ingest.add_argument("--embedding-provider", choices=("local", "openai"), default="local")
+    ingest.add_argument("--embedding-model", default=os.getenv("RAG_EMBEDDING_MODEL"))
     ask = commands.add_parser("ask", help="Retrieve evidence and answer a question")
     ask.add_argument("question")
     ask.add_argument("--index", type=Path, default=Path(".rag/index.json"))
@@ -35,12 +36,16 @@ def main(argv=None):
                 raise ValueError("--top-k must be positive; --min-score must be between -1 and 1.")
             if not args.question.strip() or len(args.question.strip()) > 4000:
                 raise ValueError("Question must contain 1 to 4000 characters.")
-        if not os.getenv("OPENAI_API_KEY"):
-            raise ValueError("Set OPENAI_API_KEY in your environment before running this command.")
-        from openai import OpenAI
-        client = OpenAI(timeout=60.0, max_retries=2)
+        client = None
+        if args.command == "ask" or args.embedding_provider == "openai":
+            if not os.getenv("OPENAI_API_KEY"):
+                raise ValueError("Set OPENAI_API_KEY in your environment before running this command.")
+            from openai import OpenAI
+            client = OpenAI(timeout=60.0, max_retries=2)
         if args.command == "ingest":
-            index = build_index(client, chunks, args.embedding_model)
+            defaults = {"local": "sentence-transformers/all-MiniLM-L6-v2", "openai": "text-embedding-3-small"}
+            model = args.embedding_model or defaults[args.embedding_provider]
+            index = build_index(client, chunks, model, args.embedding_provider)
             index.save(args.index)
             print(f"Indexed {len(chunks)} chunks from {len({c.source for c in chunks})} PDFs at {args.index}.")
         else:

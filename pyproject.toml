@@ -7,7 +7,7 @@ name = "rag-knowledge-assistant"
 version = "0.1.0"
 description = "A minimal PDF RAG CLI with page-level source citations"
 requires-python = ">=3.10"
-dependencies = ["openai>=1.68,<3", "pypdf>=5,<7"]
+dependencies = ["openai>=1.68,<3", "pypdf>=5,<7", "sentence-transformers>=3,<6"]
 
 [project.scripts]
 rag = "rag_assistant.cli:main"

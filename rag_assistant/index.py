@@ -18,7 +18,15 @@ def normalize(vector: list[float]) -> list[float]:
     return [value / length for value in vector]
 
 
-def embed(client, texts: list[str], model: str) -> list[list[float]]:
+def embed(client, texts: list[str], model: str, provider: str = "openai") -> list[list[float]]:
+    if provider == "local":
+        from sentence_transformers import SentenceTransformer
+
+        encoder = SentenceTransformer(model)
+        rows = encoder.encode(texts, batch_size=32, convert_to_numpy=True)
+        return [normalize(row) for row in rows.tolist()]
+    if provider != "openai":
+        raise ValueError(f"Unknown embedding provider: {provider}")
     # Byte count conservatively bounds token count without a tokenizer dependency.
     if any(not text.strip() or len(text.encode("utf-8")) > 8192 for text in texts):
         raise ValueError("Embedding text must be nonempty and at most 8192 UTF-8 bytes; "
@@ -41,7 +49,11 @@ class Index:
     chunks: list[Chunk]
     vectors: list[list[float]]
 
+    provider: str = "openai"  # Indexes created before provider selection used OpenAI.
+
     def validate(self):
+        if self.provider not in ("local", "openai"):
+            raise ValueError(f"Unknown embedding provider: {self.provider}")
         if not self.model or not self.chunks or len(self.chunks) != len(self.vectors):
             raise ValueError("Index is empty or has mismatched chunks and vectors; run ingest again.")
         dimensions = len(self.vectors[0])
@@ -52,7 +64,7 @@ class Index:
 
     def save(self, path: Path):
         self.validate()
-        payload = {"version": 1, "model": self.model,
+        payload = {"version": 1, "model": self.model, "provider": self.provider,
                    "chunks": [asdict(chunk) for chunk in self.chunks], "vectors": self.vectors}
         path.parent.mkdir(parents=True, exist_ok=True)
         # Replace only after a successful write, preserving an existing index on failure.
@@ -76,7 +88,7 @@ class Index:
             if payload["version"] != 1:
                 raise ValueError("Unsupported index version.")
             index = cls(payload["model"], [Chunk(**item) for item in payload["chunks"]],
-                        [normalize(vector) for vector in payload["vectors"]])
+                        [normalize(vector) for vector in payload["vectors"]], payload.get("provider", "openai"))
             index.validate()
             return index
         except FileNotFoundError as exc:
@@ -97,9 +109,9 @@ class Index:
                       key=lambda match: match[1], reverse=True)[:top_k]
 
 
-def build_index(client, chunks: list[Chunk], model: str) -> Index:
+def build_index(client, chunks: list[Chunk], model: str, provider: str = "openai") -> Index:
     if not chunks:
         raise ValueError("Cannot index an empty collection.")
-    index = Index(model, chunks, embed(client, [chunk.text for chunk in chunks], model))
+    index = Index(model, chunks, embed(client, [chunk.text for chunk in chunks], model, provider), provider)
     index.validate()
     return index

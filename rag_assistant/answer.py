@@ -23,7 +23,7 @@ def answer_question(client, index: Index, question: str, model: str,
         raise ValueError("Question cannot be empty.")
     if len(question) > 4000:
         raise ValueError("Question must be at most 4000 characters.")
-    query = embed(client, [question], index.model)[0]
+    query = embed(client, [question], index.model, index.provider)[0]
     matches = index.retrieve(query, top_k, min_score)
     if not matches:
         return NO_ANSWER
