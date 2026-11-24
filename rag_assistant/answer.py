@@ -21,6 +21,10 @@ Be concise. Do not add a sources list; the application supplies it.
 
 OLLAMA_INSTRUCTIONS = INSTRUCTIONS + """Answer the question directly.
 Do not repeat or restate the user's question.
+Prefer 1–3 concise factual sentences.
+Include the most relevant concrete actions, technologies, or outcomes stated in the evidence.
+Avoid vague claims such as "has experience with" when the evidence describes specific work.
+Do not invent details or infer anything beyond the supplied evidence.
 Every factual sentence or bullet must end with one or more valid citation labels, such as [1] or [1] [2].
 Use only labels from the supplied excerpts.
 An answer with no citation labels is invalid. If the excerpts do not support an answer, return only INSUFFICIENT_EVIDENCE.

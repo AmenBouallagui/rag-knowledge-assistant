@@ -170,6 +170,10 @@ class RagTests(unittest.TestCase):
             self.assertEqual(payload["options"], {"temperature": 0, "seed": 42})
             system, user = payload["messages"]
             self.assertEqual(system, {"role": "system", "content": OLLAMA_INSTRUCTIONS})
+            self.assertIn("concrete actions, technologies, or outcomes", system["content"])
+            self.assertIn("Prefer 1–3 concise factual sentences.", system["content"])
+            self.assertIn('Avoid vague claims such as "has experience with"', system["content"])
+            self.assertIn("Do not invent details or infer anything beyond", system["content"])
             self.assertEqual(user["role"], "user")
             self.assertEqual(
                 user["content"],
