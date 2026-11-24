@@ -24,20 +24,23 @@ def main(argv=None):
     ask.add_argument("--index", type=Path, default=Path(".rag/index.json"))
     ask.add_argument("--top-k", type=int, default=4)
     ask.add_argument("--min-score", type=float, default=0.0)
-    ask.add_argument("--model", default=os.getenv("RAG_ANSWER_MODEL", "gpt-4.1-mini"))
+    ask.add_argument("--answer-provider", choices=("ollama", "openai"), default="ollama")
+    ask.add_argument("--model", default=os.getenv("RAG_ANSWER_MODEL"))
     args = parser.parse_args(argv)
     try:
         # Validate local input before constructing the API client.
         if args.command == "ingest":
             chunks = load_chunks(args.pdf_dir, args.chunk_size, args.overlap)
+            needs_openai = args.embedding_provider == "openai"
         else:
             index = Index.load(args.index)
+            needs_openai = index.provider == "openai" or args.answer_provider == "openai"
             if args.top_k < 1 or not -1 <= args.min_score <= 1:
                 raise ValueError("--top-k must be positive; --min-score must be between -1 and 1.")
             if not args.question.strip() or len(args.question.strip()) > 4000:
                 raise ValueError("Question must contain 1 to 4000 characters.")
         client = None
-        if args.command == "ask" or args.embedding_provider == "openai":
+        if needs_openai:
             if not os.getenv("OPENAI_API_KEY"):
                 raise ValueError("Set OPENAI_API_KEY in your environment before running this command.")
             from openai import OpenAI
@@ -49,7 +52,13 @@ def main(argv=None):
             index.save(args.index)
             print(f"Indexed {len(chunks)} chunks from {len({c.source for c in chunks})} PDFs at {args.index}.")
         else:
-            print(answer_question(client, index, args.question, args.model, args.top_k, args.min_score))
+            defaults = {"ollama": "qwen2.5:0.5b", "openai": "gpt-4.1-mini"}
+            model = args.model or defaults[args.answer_provider]
+            print(answer_question(
+                client, index, args.question, model, args.top_k, args.min_score,
+                answer_provider=args.answer_provider,
+                ollama_host=os.getenv("OLLAMA_HOST") or "http://127.0.0.1:11434",
+            ))
     except (ValueError, OSError) as exc:
         parser.exit(1, f"Error: {exc}\n")
     except ImportError:

@@ -2,6 +2,9 @@
 
 import json
 import re
+from http.client import HTTPException
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from .index import Index, embed
 
@@ -16,8 +19,40 @@ Be concise. Do not add a sources list; the application supplies it.
 """
 
 
+def ollama_answer(host: str, model: str, prompt: str) -> str:
+    url = host.rstrip("/") + "/api/chat"
+    payload = {
+        "model": model,
+        "stream": False,
+        "messages": [
+            {"role": "system", "content": INSTRUCTIONS},
+            {"role": "user", "content": prompt},
+        ],
+    }
+    try:
+        request = Request(url, data=json.dumps(payload).encode("utf-8"),
+                          headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(request, timeout=60) as response:
+            content = json.load(response)["message"]["content"]
+    except HTTPError as exc:
+        exc.close()
+        if exc.code == 404:
+            raise ValueError(f"Ollama did not find model {model!r} at {url}. "
+                             f"Run ollama pull {model} and check OLLAMA_HOST.") from exc
+        raise ValueError(f"Ollama returned HTTP {exc.code} for model {model!r}.") from exc
+    except (URLError, OSError, HTTPException) as exc:
+        raise ValueError(f"Could not reach Ollama at {host}. Check that it is running. "
+                         f"({exc})") from exc
+    except (KeyError, TypeError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("Malformed Ollama response: expected message.content text.") from exc
+    if not isinstance(content, str):
+        raise ValueError("Malformed Ollama response: expected message.content text.")
+    return content
+
+
 def answer_question(client, index: Index, question: str, model: str,
-                    top_k: int = 4, min_score: float = 0.0) -> str:
+                    top_k: int = 4, min_score: float = 0.0, *, answer_provider: str = "openai",
+                    ollama_host: str = "http://127.0.0.1:11434") -> str:
     question = question.strip()
     if not question:
         raise ValueError("Question cannot be empty.")
@@ -30,14 +65,17 @@ def answer_question(client, index: Index, question: str, model: str,
     # Serialize excerpts as data, including labels generated here rather than by the model.
     excerpts = [{"label": number, "text": chunk.text}
                 for number, (chunk, _) in enumerate(matches, start=1)]
-    response = client.responses.create(
-        model=model, instructions=INSTRUCTIONS,
-        input=json.dumps({"question": question, "excerpts": excerpts}, ensure_ascii=False),
-        max_output_tokens=800, store=False,
-    )
-    if response.status != "completed":
-        raise ValueError("Answer generation did not complete; retry the question.")
-    text = response.output_text.strip()
+    prompt = json.dumps({"question": question, "excerpts": excerpts}, ensure_ascii=False)
+    if answer_provider == "ollama":
+        text = ollama_answer(ollama_host, model, prompt).strip()
+    else:
+        response = client.responses.create(
+            model=model, instructions=INSTRUCTIONS, input=prompt,
+            max_output_tokens=800, store=False,
+        )
+        if response.status != "completed":
+            raise ValueError("Answer generation did not complete; retry the question.")
+        text = response.output_text.strip()
     if text == "INSUFFICIENT_EVIDENCE":
         return NO_ANSWER
     labels = {int(label) for label in re.findall(r"\[(\d+)\]", text)}

@@ -1,6 +1,8 @@
 """Offline checks with real PDF extraction and deterministic API doubles."""
 
+import io
 import json
+from urllib.error import HTTPError, URLError
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -10,7 +12,7 @@ from unittest.mock import patch
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from rag_assistant.answer import NO_ANSWER, answer_question
+from rag_assistant.answer import INSTRUCTIONS, NO_ANSWER, answer_question, ollama_answer
 from rag_assistant.cli import main
 from rag_assistant.index import Index, build_index, embed
 from rag_assistant.pdfs import Chunk, load_chunks, split_text
@@ -153,12 +155,64 @@ class RagTests(unittest.TestCase):
             main(["ingest", tmp, "--index", str(path)])
             index = Index.load(path)
             self.assertEqual(index.provider, "local")
-            client = FakeClient()
-            result = answer_question(client, index, "annual leave?", "test", top_k=1)
-            self.assertIn("handbook.pdf, page 2", result)
-            self.assertEqual([name for name, _ in client.calls], ["responses"])
+            response = io.BytesIO(b'{"message":{"content":"Annual leave is 25 days. [1]"}}')
+            with patch.dict("os.environ", {"OLLAMA_HOST": "http://127.0.0.1:12345/"}), patch(
+                "rag_assistant.answer.urlopen", return_value=response
+            ) as http, patch("builtins.print") as output:
+                main(["ask", "annual leave?", "--index", str(path), "--top-k", "1"])
+            self.assertIn("handbook.pdf, page 2", output.call_args.args[0])
+            request = http.call_args.args[0]
+            self.assertEqual(request.full_url, "http://127.0.0.1:12345/api/chat")
+            self.assertEqual(request.get_method(), "POST")
+            payload = json.loads(request.data)
+            self.assertEqual(payload["model"], "qwen2.5:0.5b")
+            self.assertIs(payload["stream"], False)
+            system, user = payload["messages"]
+            self.assertEqual(system, {"role": "system", "content": INSTRUCTIONS})
+            self.assertEqual(user["role"], "user")
+            self.assertEqual(json.loads(user["content"]), {
+                "question": "annual leave?",
+                "excerpts": [{"label": 1, "text": "Annual leave is 25 days."}],
+            })
             self.assertEqual([call.args for call in constructor.call_args_list],
                              [("sentence-transformers/all-MiniLM-L6-v2",)] * 2)
+
+    def test_ollama_errors_and_citation_rules(self):
+        host = "http://127.0.0.1:11434"
+        model = "qwen2.5:0.5b"
+        for error, message in (
+            (URLError(ConnectionRefusedError("Connection refused")), "Check that it is running"),
+            (HTTPError(host, 404, "Not Found", {}, None), "ollama pull"),
+        ):
+            with patch("rag_assistant.answer.urlopen", side_effect=error):
+                with self.assertRaisesRegex(ValueError, message):
+                    ollama_answer(host, model, "question")
+        for body in (b"not JSON", b"{}", b'{"message":{"content":null}}'):
+            with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
+                with self.assertRaisesRegex(ValueError, "Malformed Ollama response"):
+                    ollama_answer(host, model, "question")
+
+        index = Index("test", [Chunk("handbook.pdf", 2, "leave")], [[1.0, 0.0]])
+        for content in ("No labels", "Invalid [2]", "INSUFFICIENT_EVIDENCE"):
+            body = json.dumps({"message": {"content": content}}).encode()
+            with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
+                if content == "INSUFFICIENT_EVIDENCE":
+                    self.assertEqual(answer_question(
+                        FakeClient(), index, "leave?", model, answer_provider="ollama"
+                    ), NO_ANSWER)
+                else:
+                    with self.assertRaisesRegex(ValueError, "missing or invalid citations"):
+                        answer_question(FakeClient(), index, "leave?", model, answer_provider="ollama")
+
+    def test_ask_requires_key_for_either_openai_provider(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", clear=True):
+            path = Path(tmp) / "index.json"
+            for embedding_provider, answer_provider in (("local", "openai"), ("openai", "ollama")):
+                Index("test", [Chunk("handbook.pdf", 2, "leave")], [[1.0, 0.0]],
+                      embedding_provider).save(path)
+                with patch("sys.stderr", new_callable=io.StringIO) as stderr, self.assertRaises(SystemExit):
+                    main(["ask", "leave?", "--index", str(path), "--answer-provider", answer_provider])
+                self.assertIn("Set OPENAI_API_KEY", stderr.getvalue())
 
     def test_cli_ingest_and_ask(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -167,13 +221,15 @@ class RagTests(unittest.TestCase):
             index = root / "index.json"
             client = FakeClient()
             module = SimpleNamespace(OpenAI=lambda **kwargs: client)
-            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-only"}), \
+            with patch.dict("os.environ", {"OPENAI_API_KEY": "test-only"}, clear=True), \
                  patch.dict("sys.modules", {"openai": module}), patch("builtins.print") as output:
                 main(["ingest", str(root), "--embedding-provider", "openai", "--index", str(index)])
                 payload = json.loads(index.read_text())
                 self.assertEqual(payload.pop("provider"), "openai")
                 index.write_text(json.dumps(payload))  # Original version-1 format.
-                main(["ask", "annual leave?", "--index", str(index), "--top-k", "1"])
+                main(["ask", "annual leave?", "--index", str(index), "--top-k", "1",
+                      "--answer-provider", "openai"])
+                self.assertEqual(client.calls[-1][1]["model"], "gpt-4.1-mini")
                 self.assertIn("handbook.pdf, page 2", output.call_args.args[0])
                 self.assertTrue(index.exists())
 

@@ -26,13 +26,12 @@ embedding model, even if you later change the environment variable.
 
 ## Setup
 
-Requires Python 3.10+. Local ingestion needs no API key. Set an OpenAI API key for answer generation or OpenAI embeddings.
+Requires Python 3.10+. Set `OPENAI_API_KEY` if you use OpenAI embeddings or select OpenAI answers.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-export OPENAI_API_KEY="your-api-key"
 ```
 
 Local PDF ingestion was tested on an Intel MacBook Pro (macOS x86_64) with
@@ -47,11 +46,28 @@ variables; the application reads exported environment variables directly.
 
 ## Use
 
+Start Ollama and pull the default model before asking a question.
+
+```bash
+ollama pull qwen2.5:0.5b
+```
+
+Ollama must be running at `http://127.0.0.1:11434` when you ask. Set
+`OLLAMA_HOST` to override that URL. If you choose another Ollama model with
+`--model`, pull that model first as well.
+
 Place PDFs in `data/pdfs/` (nested directories are supported), then run:
 
 ```bash
 rag ingest data/pdfs
 rag ask "How many days of annual leave are allowed?"
+```
+
+To use OpenAI for generation instead, set your API key and select the provider.
+
+```bash
+export OPENAI_API_KEY="your-api-key"
+rag ask "How many days of annual leave are allowed?" --answer-provider openai
 ```
 
 Illustrative output for a PDF containing that policy:
@@ -84,7 +100,8 @@ without a provider continue to use OpenAI. Re-ingest to switch providers.
 Set `RAG_EMBEDDING_MODEL` only to a model compatible with the selected provider.
 
 Defaults: 1,200 characters per chunk, 200 characters of overlap, four retrieved
-chunks, `text-embedding-3-small` for the OpenAI embedding option, and `gpt-4.1-mini` for answers.
+chunks, `text-embedding-3-small` for the OpenAI embedding option, and `qwen2.5:0.5b` for Ollama
+answers. OpenAI answers default to `gpt-4.1-mini`.
 Override with `--embedding-model` during ingestion, `--model` during asking, or
 `RAG_EMBEDDING_MODEL` / `RAG_ANSWER_MODEL`. Re-run ingestion whenever PDFs change;
 it rebuilds the complete index and replaces it only after successful embedding.
@@ -97,15 +114,15 @@ it rebuilds the complete index and replaces it only after successful embedding.
    are stored in one local JSON file.
 4. The question is embedded using the same model. A linear cosine-similarity
    search ranks the chunks and selects up to `--top-k` above `--min-score`.
-5. The Responses API receives only the retrieved excerpts and the question.
+5. The selected answer provider receives only the retrieved excerpts and the question.
    It is instructed to cite supported claims or abstain. The application rejects
    missing/out-of-range citation labels and appends filenames/pages itself.
 
-Local embeddings process PDF text on your machine. With OpenAI embeddings,
-extracted PDF text is sent to OpenAI. With either provider, questions and retrieved
-excerpts are sent for answer generation. These requests require network access
-and incur API usage. The index is local but contains document text. PDFs, keys,
-and generated indexes are ignored by Git. Response generation uses `store=False`.
+With local embeddings and the default Ollama server, PDF text and questions
+stay on your machine and asking requires no OpenAI key. OpenAI embeddings send
+chunk text and the question to OpenAI. OpenAI answers send the question and
+retrieved excerpts to OpenAI with `store=False`. The local index contains
+document text. PDFs, keys, and generated indexes are ignored by Git.
 
 ## Limits
 
@@ -131,8 +148,8 @@ python -m unittest discover -s tests -v
 
 Tests generate a real two-page PDF and exercise extraction, chunking, embedding
 batching/order, index persistence, cosine ranking, CLI commands, citation
-validation, and abstention. API responses are deterministic doubles: no key,
-network, or API spend is needed. GitHub Actions runs the same tests.
+validation, abstention, and Ollama error handling. The tests mock generation and
+embeddings, so no API key, Ollama server, or model download is needed. GitHub Actions runs the same tests.
 
 API references: [Embeddings](https://developers.openai.com/api/reference/python/resources/embeddings/methods/create)
 and [Responses](https://developers.openai.com/api/reference/python/resources/responses/methods/create).
