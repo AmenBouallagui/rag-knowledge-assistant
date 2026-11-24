@@ -109,7 +109,9 @@ it rebuilds the complete index and replaces it only after successful embedding.
 ## How it works
 
 1. `pypdf` extracts each page separately, preserving its source path and page.
-2. Overlapping character windows split the text; chunks never cross pages.
+2. The chunker groups lines and bullets within each page. For oversized units,
+   it prefers sentence boundaries. Overlap carries complete trailing units
+   when they fit with the next unit.
 3. The selected provider embeds chunks in batches of 32. Vectors and metadata
    are stored in one local JSON file.
 4. The question is embedded using the same model. A linear cosine-similarity
@@ -129,7 +131,7 @@ document text. PDFs, keys, and generated indexes are ignored by Git.
 - Scanned/image-only PDFs need OCR first. Empty pages produce warnings;
   unreadable/password-protected PDFs stop ingestion with the filename.
 - PDF page numbers are physical pages, not necessarily printed page labels.
-- Extraction may lose table layout. Character chunking can split sentences.
+- Extraction may lose table layout. Oversized sentences may split across chunks.
   Local models truncate inputs beyond their token limit. Each OpenAI embedding input is limited conservatively to 8,192 UTF-8 bytes; reduce
   `--chunk-size` if a multilingual document exceeds that bound.
 - Linear search and JSON suit small document collections; the entire index is

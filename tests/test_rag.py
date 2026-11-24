@@ -55,12 +55,37 @@ class FakeClient:
 
 
 class RagTests(unittest.TestCase):
-    def test_chunk_coverage_overlap_and_limits(self):
-        text = "abcdefghij" * 31
-        chunks = split_text(text, chunk_size=100, overlap=20)
-        reconstructed = chunks[0] + "".join(chunk[20:] for chunk in chunks[1:])
-        self.assertEqual(reconstructed, text)
+    def test_chunking_preserves_inline_bullets_and_paragraphs(self):
+        first = "•Implemented a client data migration covering tables and views."
+        second = "•Developed a metadata-driven pipeline with parameterized migration logic."
+        text = f"Dashboard design {first} {second}\n\n- Maintained SQL views. * Built reports."
+        chunks = split_text(text, chunk_size=85, overlap=0)
+        self.assertEqual(chunks, ["Dashboard design\n" + first, second,
+                                  "- Maintained SQL views.\n* Built reports."])
+        self.assertEqual(split_text("First paragraph.\n\nSecond paragraph.\nThird line.",
+                                    chunk_size=35, overlap=0),
+                         ["First paragraph.\nSecond paragraph.", "Third line."])
+
+    def test_chunking_splits_oversized_units_at_sentence_or_word_boundaries(self):
+        text = "•Built a pipeline. It moves data to Fabric. Then validated every individual reporting view."
+        chunks = split_text(text, chunk_size=27, overlap=0)
+        self.assertEqual(chunks, ["•Built a pipeline.", "It moves data to Fabric.",
+                                  "Then validated every", "individual reporting view."])
+        self.assertTrue(all(len(chunk) <= 27 for chunk in chunks))
+        token = "abcdefghij" * 31
+        chunks = split_text(token, chunk_size=100, overlap=0)
+        self.assertEqual("".join(chunks), token)
         self.assertTrue(all(len(chunk) <= 100 for chunk in chunks))
+
+    def test_chunk_overlap_carries_complete_units(self):
+        first, second, third = "•Migrated reporting views.", "•Validated tables.", "•Built a pipeline."
+        chunks = split_text(f"{first} {second} {third}", chunk_size=47, overlap=17)
+        self.assertEqual(chunks, [f"{first}\n{second}", f"{second}\n{third}"])
+        self.assertTrue(all(len(chunk) <= 47 for chunk in chunks))
+        self.assertEqual(split_text(f"{first} {second}", chunk_size=30, overlap=27),
+                         [first, second])
+
+    def test_chunking_blank_input_and_invalid_limits(self):
         self.assertEqual(split_text("   \n"), [])
         for size, overlap in [(0, 0), (100, 100), (100, -1), (4001, 1)]:
             with self.assertRaises(ValueError):
@@ -73,7 +98,7 @@ class RagTests(unittest.TestCase):
             write_pdf(root / "policies" / "handbook.PDF")
             chunks = load_chunks(root)
             self.assertEqual([c.page for c in chunks], [1, 2])
-            self.assertEqual(chunks[1].source, "policies/handbook.PDF")
+            self.assertEqual([c.source for c in chunks], ["policies/handbook.PDF"] * 2)
             client = FakeClient()
             index = build_index(client, chunks, "test-embedding")
             path = root / "index.json"

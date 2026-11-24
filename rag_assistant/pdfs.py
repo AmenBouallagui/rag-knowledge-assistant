@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 import warnings
 
 from pypdf import PdfReader
@@ -14,26 +15,51 @@ class Chunk:
     text: str
 
 
+def _logical_units(text: str, chunk_size: int):
+    for line in text.splitlines():
+        # The bullet glyph is unambiguous, even without spaces. For ASCII
+        # markers, require whitespace so hyphenated words stay together.
+        for part in re.split(r"(?=•)|(?<=\s)(?=[*-]\s)", line):
+            unit = " ".join(part.split())
+            while len(unit) > chunk_size:
+                window = unit[:chunk_size + 1]
+                sentence_ends = [match.end() for match in re.finditer(r'[.!?]["”’)]*(?= )', window)]
+                end = sentence_ends[-1] if sentence_ends else window.rfind(" ")
+                if end <= 0:
+                    end = chunk_size  # A single unbroken token exceeds the limit.
+                yield unit[:end].rstrip()
+                unit = unit[end:].lstrip()
+            if unit:
+                yield unit
+
+
 def split_text(text: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
-    """Use overlapping character windows; prefer a nearby whitespace boundary."""
+    """Pack page text into chunks, preferring complete lines and bullets."""
     if not 0 <= overlap < chunk_size <= 4000:
         raise ValueError("Require 0 <= overlap < chunk_size <= 4000 characters.")
-    text = " ".join(text.split())
-    pieces = []
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        if end < len(text):
-            boundary = text.rfind(" ", start + chunk_size // 2, end)
-            if boundary > start + overlap:
-                end = boundary
-        piece = text[start:end].strip()
-        if piece:
-            pieces.append(piece)
-        if end == len(text):
-            break
-        start = end - overlap
-    return pieces
+
+    chunks = []
+    current = []
+    length = 0
+    for unit in _logical_units(text, chunk_size):
+        if current and length + 1 + len(unit) > chunk_size:
+            chunks.append("\n".join(current))
+            trailing = []
+            length = 0
+            for previous in reversed(current):
+                candidate = length + len(previous) + bool(trailing)
+                if candidate + 1 + len(unit) > chunk_size:
+                    break
+                if abs(overlap - candidate) >= abs(overlap - length):
+                    break  # The larger suffix would be farther from the target.
+                trailing.append(previous)
+                length = candidate
+            current = trailing[::-1]
+        length += len(unit) + bool(current)
+        current.append(unit)
+    if current:
+        chunks.append("\n".join(current))
+    return chunks
 
 
 def load_chunks(folder: Path, chunk_size: int = 1200, overlap: int = 200) -> list[Chunk]:
