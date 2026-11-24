@@ -18,6 +18,13 @@ If the excerpts do not support an answer, reply exactly: INSUFFICIENT_EVIDENCE
 Be concise. Do not add a sources list; the application supplies it.
 """
 
+OLLAMA_INSTRUCTIONS = INSTRUCTIONS + """Every factual sentence or bullet must end with one or more valid citation labels, such as [1] or [1] [2].
+Use only labels from the supplied excerpts.
+An answer with no citation labels is invalid. If the excerpts do not support an answer, use only INSUFFICIENT_EVIDENCE.
+Example of a valid answer when excerpt [1] supports it:
+Amen developed Power BI dashboards and DAX measures. [1]
+"""
+
 
 def ollama_answer(host: str, model: str, prompt: str) -> str:
     url = host.rstrip("/") + "/api/chat"
@@ -25,7 +32,7 @@ def ollama_answer(host: str, model: str, prompt: str) -> str:
         "model": model,
         "stream": False,
         "messages": [
-            {"role": "system", "content": INSTRUCTIONS},
+            {"role": "system", "content": OLLAMA_INSTRUCTIONS},
             {"role": "user", "content": prompt},
         ],
     }

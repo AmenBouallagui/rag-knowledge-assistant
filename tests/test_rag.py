@@ -12,7 +12,7 @@ from unittest.mock import patch
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
-from rag_assistant.answer import INSTRUCTIONS, NO_ANSWER, answer_question, ollama_answer
+from rag_assistant.answer import NO_ANSWER, OLLAMA_INSTRUCTIONS, answer_question, ollama_answer
 from rag_assistant.cli import main
 from rag_assistant.index import Index, build_index, embed
 from rag_assistant.pdfs import Chunk, load_chunks, split_text
@@ -168,7 +168,7 @@ class RagTests(unittest.TestCase):
             self.assertEqual(payload["model"], "qwen2.5:0.5b")
             self.assertIs(payload["stream"], False)
             system, user = payload["messages"]
-            self.assertEqual(system, {"role": "system", "content": INSTRUCTIONS})
+            self.assertEqual(system, {"role": "system", "content": OLLAMA_INSTRUCTIONS})
             self.assertEqual(user["role"], "user")
             self.assertEqual(json.loads(user["content"]), {
                 "question": "annual leave?",
