@@ -35,6 +35,12 @@ python -m pip install -e .
 export OPENAI_API_KEY="your-api-key"
 ```
 
+Local PDF ingestion was tested on an Intel MacBook Pro (macOS x86_64) with
+Python 3.12.10, torch 2.2.2, NumPy 1.26.4, transformers 4.57.6, and
+sentence-transformers 3.4.1. To use Python 3.12 explicitly, create the virtual
+environment with `python3.12 -m venv .venv`. The torch 2.2.x constraint applies
+only to Intel macOS.
+
 On Windows, activate with `.venv\Scripts\activate` and set the environment
 variable using your shell's syntax. `.env.example` documents the available
 variables; the application reads exported environment variables directly.
