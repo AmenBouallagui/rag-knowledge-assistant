@@ -167,6 +167,7 @@ class RagTests(unittest.TestCase):
             payload = json.loads(request.data)
             self.assertEqual(payload["model"], "gemma3:1b")
             self.assertIs(payload["stream"], False)
+            self.assertEqual(payload["options"], {"temperature": 0, "seed": 42})
             system, user = payload["messages"]
             self.assertEqual(system, {"role": "system", "content": OLLAMA_INSTRUCTIONS})
             self.assertEqual(user["role"], "user")
@@ -203,6 +204,18 @@ class RagTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "missing or invalid citations"):
                         answer_question(FakeClient(), index, "leave?", model, answer_provider="ollama")
+
+    def test_ollama_rejects_cited_question_echo(self):
+        question = "What experience does Amen have with Power BI?"
+        index = Index("test", [Chunk("profile.pdf", 2, "Amen developed dashboards.")],
+                      [[0.0, 1.0]])
+        for content in (f"{question} [1]", f" ‘{question.lower().rstrip('?')}’ [1] "):
+            with self.subTest(content=content):
+                body = json.dumps({"message": {"content": content}}).encode()
+                with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
+                    with self.assertRaisesRegex(ValueError, "missing or invalid citations"):
+                        answer_question(FakeClient(), index, question, "gemma3:1b",
+                                        answer_provider="ollama")
 
     def test_ollama_deduplicates_labels_only_within_each_group(self):
         index = Index("test", [Chunk("handbook.pdf", 2, "leave"),

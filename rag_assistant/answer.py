@@ -2,6 +2,7 @@
 
 import json
 import re
+from unicodedata import category
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -18,9 +19,11 @@ If the excerpts do not support an answer, reply exactly: INSUFFICIENT_EVIDENCE
 Be concise. Do not add a sources list; the application supplies it.
 """
 
-OLLAMA_INSTRUCTIONS = INSTRUCTIONS + """Every factual sentence or bullet must end with one or more valid citation labels, such as [1] or [1] [2].
+OLLAMA_INSTRUCTIONS = INSTRUCTIONS + """Answer the question directly.
+Do not repeat or restate the user's question.
+Every factual sentence or bullet must end with one or more valid citation labels, such as [1] or [1] [2].
 Use only labels from the supplied excerpts.
-An answer with no citation labels is invalid. If the excerpts do not support an answer, use only INSUFFICIENT_EVIDENCE.
+An answer with no citation labels is invalid. If the excerpts do not support an answer, return only INSUFFICIENT_EVIDENCE.
 Example of a valid answer when excerpt [1] supports it:
 Amen developed Power BI dashboards and DAX measures. [1]
 """
@@ -31,6 +34,7 @@ def ollama_answer(host: str, model: str, prompt: str) -> str:
     payload = {
         "model": model,
         "stream": False,
+        "options": {"temperature": 0, "seed": 42},
         "messages": [
             {"role": "system", "content": OLLAMA_INSTRUCTIONS},
             {"role": "user", "content": prompt},
@@ -73,6 +77,15 @@ def normalize_citation_groups(text: str) -> str:
     return re.sub(r"\[\d+\](?:[^\S\r\n]*\[\d+\])+", deduplicate, text)
 
 
+def _echo_text(text: str) -> str:
+    start, end = 0, len(text)
+    while start < end and (text[start].isspace() or category(text[start]).startswith("P")):
+        start += 1
+    while end > start and (text[end - 1].isspace() or category(text[end - 1]).startswith("P")):
+        end -= 1
+    return text[start:end].casefold()
+
+
 def answer_question(client, index: Index, question: str, model: str,
                     top_k: int = 4, min_score: float = 0.0, *, answer_provider: str = "openai",
                     ollama_host: str = "http://127.0.0.1:11434") -> str:
@@ -101,8 +114,13 @@ def answer_question(client, index: Index, question: str, model: str,
         text = response.output_text.strip()
     if text == "INSUFFICIENT_EVIDENCE":
         return NO_ANSWER
-    labels = {int(label) for label in re.findall(r"\[(\d+)\]", text)}
-    if not text or not labels or not labels.issubset(set(range(1, len(matches) + 1))):
+    citation_pattern = r"\[(\d+)\]"
+    labels = {int(label) for label in re.findall(citation_pattern, text)}
+    echoes_question = (
+        answer_provider == "ollama"
+        and _echo_text(re.sub(citation_pattern, "", text)) == _echo_text(question)
+    )
+    if echoes_question or not text or not labels or not labels.issubset(range(1, len(matches) + 1)):
         raise ValueError("Model returned missing or invalid citations; retry the question.")
     sources = [f"[{label}] {matches[label - 1][0].source}, page {matches[label - 1][0].page}"
                for label in sorted(labels)]
