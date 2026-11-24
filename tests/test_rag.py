@@ -159,7 +159,7 @@ class RagTests(unittest.TestCase):
             with patch.dict("os.environ", {"OLLAMA_HOST": "http://127.0.0.1:12345/"}), patch(
                 "rag_assistant.answer.urlopen", return_value=response
             ) as http, patch("builtins.print") as output:
-                main(["ask", "annual leave?", "--index", str(path), "--top-k", "1"])
+                main(["ask", "annual leave?", "--index", str(path)])
             self.assertIn("handbook.pdf, page 2", output.call_args.args[0])
             request = http.call_args.args[0]
             self.assertEqual(request.full_url, "http://127.0.0.1:12345/api/chat")
@@ -171,10 +171,14 @@ class RagTests(unittest.TestCase):
             system, user = payload["messages"]
             self.assertEqual(system, {"role": "system", "content": OLLAMA_INSTRUCTIONS})
             self.assertEqual(user["role"], "user")
-            self.assertEqual(json.loads(user["content"]), {
-                "question": "annual leave?",
-                "excerpts": [{"label": 1, "text": "Annual leave is 25 days."}],
-            })
+            self.assertEqual(
+                user["content"],
+                "Use the evidence below to answer the question.\n\n"
+                "EVIDENCE:\n[1] Annual leave is 25 days.\n\n[2] The office is in Vienna.\n\n"
+                "QUESTION:\nannual leave?\n\n"
+                "Give a short direct answer. Cite the evidence using [1], [2], etc.\n\n"
+                "ANSWER:",
+            )
             self.assertEqual([call.args for call in constructor.call_args_list],
                              [("sentence-transformers/all-MiniLM-L6-v2",)] * 2)
 

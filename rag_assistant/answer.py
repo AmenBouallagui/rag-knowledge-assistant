@@ -101,10 +101,18 @@ def answer_question(client, index: Index, question: str, model: str,
     # Serialize excerpts as data, including labels generated here rather than by the model.
     excerpts = [{"label": number, "text": chunk.text}
                 for number, (chunk, _) in enumerate(matches, start=1)]
-    prompt = json.dumps({"question": question, "excerpts": excerpts}, ensure_ascii=False)
     if answer_provider == "ollama":
+        evidence = "\n\n".join(f"[{excerpt['label']}] {excerpt['text']}" for excerpt in excerpts)
+        prompt = (
+            "Use the evidence below to answer the question.\n\n"
+            f"EVIDENCE:\n{evidence}\n\n"
+            f"QUESTION:\n{question}\n\n"
+            "Give a short direct answer. Cite the evidence using [1], [2], etc.\n\n"
+            "ANSWER:"
+        )
         text = ollama_answer(ollama_host, model, prompt).strip()
     else:
+        prompt = json.dumps({"question": question, "excerpts": excerpts}, ensure_ascii=False)
         response = client.responses.create(
             model=model, instructions=INSTRUCTIONS, input=prompt,
             max_output_tokens=800, store=False,
