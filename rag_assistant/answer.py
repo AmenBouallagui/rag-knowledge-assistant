@@ -57,6 +57,22 @@ def ollama_answer(host: str, model: str, prompt: str) -> str:
     return content
 
 
+def normalize_citation_groups(text: str) -> str:
+    def deduplicate(group: re.Match[str]) -> str:
+        seen = set()
+
+        def keep_first(label: re.Match[str]) -> str:
+            number = int(label[1])
+            if number in seen:
+                return ""
+            seen.add(number)
+            return label[0]
+
+        return re.sub(r"[^\S\r\n]*\[(\d+)\]", keep_first, group[0])
+
+    return re.sub(r"\[\d+\](?:[^\S\r\n]*\[\d+\])+", deduplicate, text)
+
+
 def answer_question(client, index: Index, question: str, model: str,
                     top_k: int = 4, min_score: float = 0.0, *, answer_provider: str = "openai",
                     ollama_host: str = "http://127.0.0.1:11434") -> str:
@@ -90,4 +106,4 @@ def answer_question(client, index: Index, question: str, model: str,
         raise ValueError("Model returned missing or invalid citations; retry the question.")
     sources = [f"[{label}] {matches[label - 1][0].source}, page {matches[label - 1][0].page}"
                for label in sorted(labels)]
-    return text + "\n\nSources:\n" + "\n".join(sources)
+    return normalize_citation_groups(text) + "\n\nSources:\n" + "\n".join(sources)

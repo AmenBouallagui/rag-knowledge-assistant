@@ -49,7 +49,7 @@ variables; the application reads exported environment variables directly.
 Start Ollama and pull the default model before asking a question.
 
 ```bash
-ollama pull qwen2.5:0.5b
+ollama pull gemma3:1b
 ```
 
 Ollama must be running at `http://127.0.0.1:11434` when you ask. Set
@@ -100,7 +100,7 @@ without a provider continue to use OpenAI. Re-ingest to switch providers.
 Set `RAG_EMBEDDING_MODEL` only to a model compatible with the selected provider.
 
 Defaults: 1,200 characters per chunk, 200 characters of overlap, four retrieved
-chunks, `text-embedding-3-small` for the OpenAI embedding option, and `qwen2.5:0.5b` for Ollama
+chunks, `text-embedding-3-small` for the OpenAI embedding option, and `gemma3:1b` for Ollama
 answers. OpenAI answers default to `gpt-4.1-mini`.
 Override with `--embedding-model` during ingestion, `--model` during asking, or
 `RAG_EMBEDDING_MODEL` / `RAG_ANSWER_MODEL`. Re-run ingestion whenever PDFs change;

@@ -165,7 +165,7 @@ class RagTests(unittest.TestCase):
             self.assertEqual(request.full_url, "http://127.0.0.1:12345/api/chat")
             self.assertEqual(request.get_method(), "POST")
             payload = json.loads(request.data)
-            self.assertEqual(payload["model"], "qwen2.5:0.5b")
+            self.assertEqual(payload["model"], "gemma3:1b")
             self.assertIs(payload["stream"], False)
             system, user = payload["messages"]
             self.assertEqual(system, {"role": "system", "content": OLLAMA_INSTRUCTIONS})
@@ -179,7 +179,7 @@ class RagTests(unittest.TestCase):
 
     def test_ollama_errors_and_citation_rules(self):
         host = "http://127.0.0.1:11434"
-        model = "qwen2.5:0.5b"
+        model = "gemma3:1b"
         for error, message in (
             (URLError(ConnectionRefusedError("Connection refused")), "Check that it is running"),
             (HTTPError(host, 404, "Not Found", {}, None), "ollama pull"),
@@ -193,7 +193,7 @@ class RagTests(unittest.TestCase):
                     ollama_answer(host, model, "question")
 
         index = Index("test", [Chunk("handbook.pdf", 2, "leave")], [[1.0, 0.0]])
-        for content in ("No labels", "Invalid [2]", "INSUFFICIENT_EVIDENCE"):
+        for content in ("No labels", "Invalid [1] [2] [2]", "INSUFFICIENT_EVIDENCE"):
             body = json.dumps({"message": {"content": content}}).encode()
             with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
                 if content == "INSUFFICIENT_EVIDENCE":
@@ -203,6 +203,24 @@ class RagTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "missing or invalid citations"):
                         answer_question(FakeClient(), index, "leave?", model, answer_provider="ollama")
+
+    def test_ollama_deduplicates_labels_only_within_each_group(self):
+        index = Index("test", [Chunk("handbook.pdf", 2, "leave"),
+                               Chunk("handbook.pdf", 3, "policy")], [[1.0, 0.0], [0.0, 1.0]])
+        generated = (
+            "Annual leave is 25 days. [1] [1]  [2] Another sentence. [2] [2]\n"
+            "- A separate bullet. [1]\n- Another bullet. [1]"
+        )
+        expected = (
+            "Annual leave is 25 days. [1]  [2] Another sentence. [2]\n"
+            "- A separate bullet. [1]\n- Another bullet. [1]\n\n"
+            "Sources:\n[1] handbook.pdf, page 2\n[2] handbook.pdf, page 3"
+        )
+        body = json.dumps({"message": {"content": generated}}).encode()
+        with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
+            self.assertEqual(answer_question(
+                FakeClient(), index, "leave?", "gemma3:1b", answer_provider="ollama"
+            ), expected)
 
     def test_ask_requires_key_for_either_openai_provider(self):
         with tempfile.TemporaryDirectory() as tmp, patch.dict("os.environ", clear=True):
