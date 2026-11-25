@@ -52,7 +52,7 @@ def main(argv=None):
             index.save(args.index)
             print(f"Indexed {len(chunks)} chunks from {len({c.source for c in chunks})} PDFs at {args.index}.")
         else:
-            defaults = {"ollama": "gemma3:1b", "openai": "gpt-4.1-mini"}
+            defaults = {"ollama": "llama3.2:3b", "openai": "gpt-4.1-mini"}
             model = args.model or defaults[args.answer_provider]
             print(answer_question(
                 client, index, args.question, model, args.top_k, args.min_score,

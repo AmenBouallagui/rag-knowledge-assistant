@@ -47,7 +47,7 @@ def ollama_answer(host: str, model: str, prompt: str) -> str:
     try:
         request = Request(url, data=json.dumps(payload).encode("utf-8"),
                           headers={"Content-Type": "application/json"}, method="POST")
-        with urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=180) as response:
             content = json.load(response)["message"]["content"]
     except HTTPError as exc:
         exc.close()

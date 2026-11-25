@@ -187,10 +187,11 @@ class RagTests(unittest.TestCase):
                 main(["ask", "annual leave?", "--index", str(path)])
             self.assertIn("handbook.pdf, page 2", output.call_args.args[0])
             request = http.call_args.args[0]
+            self.assertEqual(http.call_args.kwargs["timeout"], 180)
             self.assertEqual(request.full_url, "http://127.0.0.1:12345/api/chat")
             self.assertEqual(request.get_method(), "POST")
             payload = json.loads(request.data)
-            self.assertEqual(payload["model"], "gemma3:1b")
+            self.assertEqual(payload["model"], "llama3.2:3b")
             self.assertIs(payload["stream"], False)
             self.assertEqual(payload["options"], {"temperature": 0, "seed": 42})
             system, user = payload["messages"]
@@ -213,7 +214,7 @@ class RagTests(unittest.TestCase):
 
     def test_ollama_errors_and_citation_rules(self):
         host = "http://127.0.0.1:11434"
-        model = "gemma3:1b"
+        model = "llama3.2:3b"
         for error, message in (
             (URLError(ConnectionRefusedError("Connection refused")), "Check that it is running"),
             (HTTPError(host, 404, "Not Found", {}, None), "ollama pull"),
@@ -247,7 +248,7 @@ class RagTests(unittest.TestCase):
                 body = json.dumps({"message": {"content": content}}).encode()
                 with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
                     with self.assertRaisesRegex(ValueError, "missing or invalid citations"):
-                        answer_question(FakeClient(), index, question, "gemma3:1b",
+                        answer_question(FakeClient(), index, question, "llama3.2:3b",
                                         answer_provider="ollama")
 
     def test_ollama_deduplicates_labels_only_within_each_group(self):
@@ -265,7 +266,7 @@ class RagTests(unittest.TestCase):
         body = json.dumps({"message": {"content": generated}}).encode()
         with patch("rag_assistant.answer.urlopen", return_value=io.BytesIO(body)):
             self.assertEqual(answer_question(
-                FakeClient(), index, "leave?", "gemma3:1b", answer_provider="ollama"
+                FakeClient(), index, "leave?", "llama3.2:3b", answer_provider="ollama"
             ), expected)
 
     def test_ask_requires_key_for_either_openai_provider(self):
