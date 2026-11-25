@@ -11,6 +11,7 @@ rag_assistant/
   index.py      Embed chunks, persist JSON, and rank by cosine similarity
   answer.py     Retrieve evidence, generate an answer, and resolve citations
   cli.py        The ingest and ask commands
+  api.py        FastAPI health and question endpoints
   __main__.py   Support python -m rag_assistant
 data/pdfs/      Put local PDFs here (ignored by Git)
 .rag/          Generated index.json (ignored by Git)
@@ -108,6 +109,30 @@ Override with `--embedding-model` during ingestion, `--model` during asking, or
 `RAG_EMBEDDING_MODEL` / `RAG_ANSWER_MODEL`. Re-run ingestion whenever PDFs change;
 it rebuilds the complete index and replaces it only after successful embedding.
 
+## HTTP API
+
+Build the index with `rag ingest` and start Ollama with `llama3.2:3b` available.
+From the project directory, run:
+
+```bash
+uvicorn rag_assistant.api:app --reload
+```
+
+`GET /health` returns the API's status and works independently of Ollama.
+`POST /ask` uses `.rag/index.json` by default. Set `RAG_INDEX_PATH` to use
+another index. The API uses the saved embedding provider and Ollama for answers.
+
+```bash
+curl -X POST http://127.0.0.1:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What experience does Amen have with Microsoft Fabric?"}'
+```
+
+The request accepts optional `top_k` and `min_score` fields, which default to
+`4` and `0.0`. The response includes `answer`, `sources` with citation labels,
+filenames and page numbers, and `insufficient_evidence`. The interactive
+[FastAPI docs](http://127.0.0.1:8000/docs) show the request and response schemas.
+
 ## How it works
 
 1. `pypdf` extracts each page separately, preserving its source path and page.
@@ -147,6 +172,7 @@ document text. PDFs, keys, and generated indexes are ignored by Git.
 ## Tests
 
 ```bash
+python -m pip install -e ".[test]"
 python -m unittest discover -s tests -v
 ```
 

@@ -8,6 +8,8 @@ version = "0.1.0"
 description = "A minimal PDF RAG CLI with page-level source citations"
 requires-python = ">=3.10"
 dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
     "openai>=1.68,<3",
     "pypdf>=5,<7",
     "numpy>=1.26.4,<2",
@@ -15,6 +17,9 @@ dependencies = [
     "sentence-transformers>=3.4.1,<3.5",
     "torch>=2.2.2,<2.3; sys_platform == 'darwin' and platform_machine == 'x86_64'",
 ]
+
+[project.optional-dependencies]
+test = ["httpx>=0.28,<1"]
 
 [project.scripts]
 rag = "rag_assistant.cli:main"
